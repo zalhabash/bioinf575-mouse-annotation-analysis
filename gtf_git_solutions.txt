@@ -1,0 +1,524 @@
+#=============================================================================
+#=============================================================================
+# BIOINF 575 - Genome annotation, bash and GitHub - SOLUTIONS
+#
+# Data: chromosome 1 of the Ensembl mouse annotation
+#       release 75, genome build GRCm38
+#       81231 lines, 2027 genes
+#
+# The GTF format:
+# https://www.ensembl.org/info/website/upload/gff.html
+# Regular expression cheatsheet:
+# https://www.maketecheasier.com/cheatsheet/regex/
+# git documentation:
+# https://git-scm.com/docs
+# https://git-scm.com/book/en/v2
+#
+# WHY THREE TOOLS
+# grep picks whole LINES by pattern
+# awk works on COLUMNS  - test column 3, do arithmetic on columns 4 and 5
+# sed works INSIDE a column - pull a value out of the attribute text
+# None of them can do the whole job, so we chain them.
+#=============================================================================
+#=============================================================================
+
+
+#=============================================================================
+# PART 0 - SET UP THE REPOSITORY AND GET THE DATA
+#=============================================================================
+
+# Create a PUBLIC repository called mouse-annotation-analysis on GitHub
+# with a README file, then clone it and move into the repo folder
+# (replace YOUR_USERNAME with your own GitHub user name)
+
+git clone git@github.com:YOUR_USERNAME/mouse-annotation-analysis.git
+cd mouse-annotation-analysis
+
+#-----------------------------
+
+# Download the annotation and uncompress it
+# -O (capital letter O) tells curl to keep the name the file has on the server
+
+curl -O https://raw.githubusercontent.com/vsbuffalo/bds-files/master/chapter-07-unix-data-tools/Mus_musculus.GRCm38.75_chr1.gtf.gz
+
+gzip -d Mus_musculus.GRCm38.75_chr1.gtf.gz
+
+#-----------------------------
+
+# ALWAYS LOOK AT A FILE BEFORE YOU WRITE COMMANDS FOR IT
+
+ls -lh Mus_musculus.GRCm38.75_chr1.gtf
+wc -l Mus_musculus.GRCm38.75_chr1.gtf
+grep "^#" Mus_musculus.GRCm38.75_chr1.gtf
+head -2 Mus_musculus.GRCm38.75_chr1.gtf
+
+## result:
+## about 26 MB, 81231 lines, 5 of them header lines starting with #
+
+#-----------------------------
+
+# What kinds of line are in the file? That is column 3.
+# grep -v "^#" drops the header lines (-v inverts the match)
+# cut -f3 takes the third TAB separated column (tab is cut's default)
+# sort groups identical values, uniq -c counts each group
+# sort -nr puts the largest count first (-n numeric, -r reverse)
+# NOTE: uniq only collapses ADJACENT identical lines, which is why sort
+# always has to come before it
+
+grep -v "^#" Mus_musculus.GRCm38.75_chr1.gtf | cut -f3 | sort | uniq -c | sort -nr
+
+## result:
+##   36128 exon
+##   25901 CDS
+##    7588 UTR
+##    4993 transcript
+##    2299 stop_codon
+##    2290 start_codon
+##    2027 gene
+##
+## 2027 genes but 81226 data lines - one gene is spread over many lines,
+## one per transcript, exon, CDS and codon. This is the single most
+## important thing to understand about the file.
+
+#-----------------------------
+
+# We do NOT commit the data file - it is public and one command re-creates it
+# What belongs in the repository is the command, not the data
+
+echo "*.gtf" > .gitignore
+echo "curl -O https://raw.githubusercontent.com/vsbuffalo/bds-files/master/chapter-07-unix-data-tools/Mus_musculus.GRCm38.75_chr1.gtf.gz" > get_data.sh
+echo "gzip -d Mus_musculus.GRCm38.75_chr1.gtf.gz" >> get_data.sh
+
+# Track the changes and commit
+
+git add .gitignore get_data.sh
+git commit -m "Added download script and ignored the annotation file"
+git push
+
+# git status should NOT list the .gtf file - the .gitignore is working
+
+git status
+
+#-----------------------------
+
+# To keep the commands short below, put the file name in a variable
+
+gtf=Mus_musculus.GRCm38.75_chr1.gtf
+
+
+#=============================================================================
+# QUESTION 1 - WHAT IS ACTUALLY ANNOTATED ON THIS CHROMOSOME?
+#=============================================================================
+
+# a. How many genes are annotated?
+
+# A gene is a line whose THIRD column is exactly "gene"
+# -F"\t" tells awk that columns are separated by tabs
+# This matters here: the 9th column contains spaces, so without -F"\t"
+# awk would split that column into pieces (see Question 4)
+
+grep -v "^#" $gtf | awk -F"\t" '$3=="gene"' | wc -l
+
+## result:
+## 2027
+
+#-----------------------------
+
+# b. Break the genes down by biotype
+
+# grep  drops the header lines
+# awk   keeps only the gene lines
+# sed   replaces the whole line with just the biotype value
+# sort | uniq -c | sort -nr  counts and ranks
+#
+# How the sed works:
+#   .*                  match anything before
+#   gene_biotype "      the literal text we are looking for
+#   \([^"]*\)           CAPTURE everything that is not a quote  <- this is \1
+#   ".*                 the closing quote and anything after
+#   /\1/                replace the whole line with what was captured
+# Parentheses have to be escaped as \( \) to act as grouping in basic sed.
+# This is the same capture-group idea used on FASTA headers, applied to a
+# longer string.
+
+grep -v "^#" $gtf \
+ | awk -F"\t" '$3=="gene"' \
+ | sed 's/.*gene_biotype "\([^"]*\)".*/\1/' \
+ | sort | uniq -c | sort -nr
+
+## result:
+##    1240 protein_coding
+##     221 pseudogene
+##     118 miRNA
+##     105 snRNA
+##      99 snoRNA
+##      89 lincRNA
+##      73 antisense
+##      31 misc_RNA
+##      23 rRNA
+##      20 processed_transcript
+##       5 sense_intronic
+##       2 polymorphic_pseudogene
+##       1 sense_overlapping
+##
+## The counts add up to 2027, which is the check that nothing was lost.
+
+#-----------------------------
+
+# c. What fraction is protein-coding?
+
+## 1240 of 2027 = 61%.
+##
+## So nearly 4 in 10 annotated genes on this chromosome are NOT
+## protein-coding: 221 pseudogenes (broken copies of real genes) and
+## several hundred RNA genes that do their job as RNA and are never
+## translated.
+##
+## This is why "gene" and "protein-coding gene" must never be used
+## interchangeably, and why any count you report has to say which one
+## you meant.
+
+#-----------------------------
+
+# Save these commands in analyze_annotation.sh, then track and commit
+
+git add analyze_annotation.sh
+git commit -m "Added the gene biotype breakdown"
+
+
+#=============================================================================
+# QUESTION 2 - WHICH GENES SPAN THE MOST DNA, AND HOW MUCH OF THAT CODES?
+#=============================================================================
+
+# a. The five protein-coding genes with the largest genomic span
+
+# grep  drops the headers
+# awk   keeps the gene lines
+# grep  keeps only protein-coding genes
+#       - we search for gene_biotype "protein_coding" and not just
+#         protein_coding, because that text also appears in column 2
+#         and in other attributes. Be specific in grep.
+# sed   replaces ONLY the attribute column with the gene name:
+#         \t          a tab
+#         [^\t]*      the rest of the line with no further tab in it
+#                     (that is the whole 9th column)
+#         gene_name " the literal text
+#         \([^"]*\)   CAPTURE the name                       <- \1
+#         ".*         the closing quote and the rest
+#         /\t\1/      put back a tab and just the name
+#       After this the line still has 9 tab separated fields and field 9
+#       is the gene name, so awk can use it directly.
+# awk   length is end - start + 1  (coordinates are 1-based and INCLUSIVE,
+#       so forgetting the +1 is an off-by-one in every number downstream)
+# sort -nr | head -5
+
+grep -v "^#" $gtf \
+ | awk -F"\t" '$3=="gene"' \
+ | grep 'gene_biotype "protein_coding"' \
+ | sed 's/\t[^\t]*gene_name "\([^"]*\)".*/\t\1/' \
+ | awk -F"\t" '{print $5-$4+1"\t"$9"\t"$7}' \
+ | sort -nr | head -5
+
+## result:
+## 1075874	Erbb4	-
+## 1003461	Pard3b	+
+## 945977	Thsd7b	+
+## 938404	Sntg1	-
+## 917180	Nckap5	-
+##
+## Erbb4 spans over a MILLION bases of chromosome 1.
+
+#-----------------------------
+
+# b. How much of Erbb4 is actually coding?
+
+# The CDS coordinates are repeated once per transcript, so we take
+# columns 4 and 5, sort -u to keep each distinct CDS once, and then sum.
+# The sum needs a variable that survives between lines, which is what an
+# awk END block is for: the body runs on every line, END runs once at the
+# end. After cut -f4,5 there are only two columns, so $1 is start and
+# $2 is end.
+
+grep 'gene_name "Erbb4"' $gtf \
+ | awk -F"\t" '$3=="CDS"' \
+ | cut -f4,5 | sort -u \
+ | awk -F"\t" '{total = total + $2 - $1 + 1} END {print total}'
+
+## result:
+## 3993
+
+# How many transcripts does it have?
+
+grep 'gene_name "Erbb4"' $gtf | awk -F"\t" '$3=="transcript"' | wc -l
+
+## result:
+## 5
+
+#-----------------------------
+
+# c. What percentage of the gene is coding?
+
+## 3993 / 1075874 = 0.37 %
+##
+## Over 99.6 % of this gene is intron - sequence that is transcribed and
+## then cut out and discarded before the protein is made.
+##
+## Note that 3993 is the union of the CDS of all 5 transcripts, not one
+## protein. The longest single transcript has 3924 coding bases, which is
+## 1308 codons - so the cell reads through a million bases of DNA to build
+## a protein of about 1300 amino acids.
+##
+## This is the normal state of affairs for a mammalian gene, and it is why
+## "gene length" is an ambiguous phrase. Always say whether you mean the
+## genomic span or the coding content.
+
+#-----------------------------
+
+# Track the changes and commit
+
+git add analyze_annotation.sh
+git commit -m "Added the longest gene and coding fraction analysis"
+
+
+#=============================================================================
+# QUESTION 3 - WHICH GENE HAS THE MOST EXONS?
+#=============================================================================
+
+# a. Rank genes by number of exon LINES - the obvious answer
+
+grep -v "^#" $gtf \
+ | awk -F"\t" '$3=="exon"' \
+ | sed 's/.*gene_name "\([^"]*\)".*/\1/' \
+ | sort | uniq -c | sort -nr | head -5
+
+## result:
+##     511 Dst
+##     259 Cdc42bpa
+##     235 Gigyf2
+##     225 Hmcn1
+##     207 Prrc2c
+
+#-----------------------------
+
+# b. Why that answer is wrong - look at the top gene three ways
+
+grep 'gene_name "Dst"' $gtf | awk -F"\t" '$3=="exon"' | wc -l
+grep 'gene_name "Dst"' $gtf | awk -F"\t" '$3=="exon"' | cut -f4,5 | sort -u | wc -l
+grep 'gene_name "Dst"' $gtf | awk -F"\t" '$3=="transcript"' | wc -l
+
+## result:
+## 511 exon lines
+## 126 distinct exons
+##  16 transcripts
+##
+## A GTF lists the exons of every TRANSCRIPT separately. Dst has 16
+## transcripts, and most of its 126 exons appear in several of them, so
+## the same exon is written out again and again. 511 counts exon
+## ANNOTATIONS, not exons.
+
+#-----------------------------
+
+# c. The corrected ranking
+#
+# An exon is identified by its coordinates AND its gene, so we cut out
+# start, end and the gene name (field 9 after the sed), sort -u to
+# collapse the repeats, and only then count per gene.
+
+grep -v "^#" $gtf \
+ | awk -F"\t" '$3=="exon"' \
+ | sed 's/\t[^\t]*gene_name "\([^"]*\)".*/\t\1/' \
+ | cut -f4,5,9 | sort -u \
+ | cut -f3 | sort | uniq -c | sort -nr | head -5
+
+## result:
+##     126 Dst
+##     115 Hmcn1
+##      80 Ush2a
+##      80 Tpr
+##      72 Pkhd1
+
+#-----------------------------
+
+# Compare the two top fives:
+#
+#   naive        corrected
+#   Dst   511    Dst    126
+#   Cdc42bpa 259 Hmcn1  115
+#   Gigyf2   235 Ush2a   80
+#   Hmcn1    225 Tpr     80
+#   Prrc2c   207 Pkhd1   72
+
+## The membership changes, not just the order. Cdc42bpa (259 lines but
+## only 69 distinct exons), Gigyf2 (235 / 71) and Prrc2c (207 / 64) drop
+## out completely, and Ush2a, Tpr and Pkhd1 take their places.
+##
+## Those three genes were not exon-rich, they were TRANSCRIPT-rich. The
+## naive count was measuring how well studied a gene is, not how many
+## exons it has - and nothing in the output warns you about that.
+
+#-----------------------------
+
+# Track the changes, commit and push
+
+git add analyze_annotation.sh
+git commit -m "Added the exon count analysis with deduplication"
+git push
+
+
+#=============================================================================
+# QUESTION 4 - USE AI, THEN CHECK IT
+#=============================================================================
+
+# Tools:
+# Copilot in VS Code - install the GitHub Copilot and GitHub Copilot Chat
+#   extensions, sign in, then File > Open Folder on the repository folder
+#   so Copilot can actually see the files. Chat opens with Ctrl+Alt+I
+#   (Cmd+Ctrl+I on Mac).
+# UMGPT - https://umgpt.umich.edu - use this when the data should not go
+#   to a consumer service. This annotation is public so either is fine
+#   here, but build the habit now.
+
+#-----------------------------
+
+# THE GOOD PROMPT - format, a real line, the exact question, the constraint.
+# Then ask the SAME thing again in a NEW chat, leaving out the sentence that
+# says the 9th column contains spaces, and compare what you get.
+
+#-----------------------------
+
+# TRAP 1 - the attribute column
+
+# Both of these run without any error
+
+grep -v "^#" $gtf | awk '{print $9}' | sort | uniq -c | head
+grep -v "^#" $gtf | cut -f9 | head -1
+
+## result:
+## the first one prints
+##   81226 gene_id
+## the second one prints
+##   gene_id "ENSMUSG00000090025"; gene_name "Gm16088"; ...
+##
+## Without -F"\t" awk splits on ANY whitespace. The 9th column is full of
+## spaces, so awk chops it into pieces and $9 lands on the very first word
+## of the attributes - the literal text gene_id - on all 81226 data lines.
+## The command succeeds, the output looks like a tidy table, and it is
+## completely useless.
+##
+## The fix is either  awk -F"\t"  or  cut -f9  (cut uses tab by default).
+
+#-----------------------------
+
+# TRAP 2 - counting genes
+
+grep -c "gene" $gtf
+grep -v "^#" $gtf | awk -F"\t" '$3=="gene"' | wc -l
+
+## result:
+## 81227
+##  2027
+##
+## Off by a factor of 40. The word "gene" appears inside gene_id,
+## gene_name, gene_source and gene_biotype on EVERY line, plus once in a
+## header line (#!genebuild-last-updated).
+##
+## grep searches whole lines for text. Counting genes is a question about
+## a COLUMN, so it needs awk. Picking the right tool for the question is
+## most of the work.
+
+#-----------------------------
+
+## THE THREE RULES
+##
+## 1. Ask for the COMMAND, not the answer. A number you cannot check is
+##    worth nothing; a pipeline you can run, read and verify is worth a lot.
+##
+## 2. Give the tool the FORMAT. It cannot see your file. The column layout,
+##    one real line, and the constraint on which tools to use are what turn
+##    a guess into a correct answer.
+##
+## 3. VERIFY with a second, independent method. Every wrong answer in this
+##    exercise - the field splitting, the grep count, the duplicated exons -
+##    ran cleanly and printed a confident number. Not one of them produced
+##    an error message. A second route to the same number is the cheapest
+##    check you will ever run.
+
+
+#=============================================================================
+# PART 5 - BRANCH, PULL REQUEST AND WRAP UP
+#=============================================================================
+
+# Real projects do not commit straight to main.
+# The -b option on git checkout creates the branch and moves onto it
+
+git checkout -b ai_crosscheck
+
+# Add the Question 4 commands to analyze_annotation.sh
+# and write the four answers in your own words in ANSWERS.md
+
+git add analyze_annotation.sh ANSWERS.md
+git commit -m "Added the AI cross-check and the written answers"
+
+# The branch does not exist on GitHub yet, so the first push has to say
+# where it goes - that is what --set-upstream (or -u) does
+
+git push --set-upstream origin ai_crosscheck
+
+#-----------------------------
+
+# On GitHub: click "Compare & pull request", write a title and one line on
+# what the cross-check found, then "Create pull request".
+# Look at the "Files changed" tab BEFORE merging - that is what a reviewer
+# sees, and it is why small well described commits are worth the trouble.
+# Then "Merge pull request".
+
+#-----------------------------
+
+# Bring the merge back to your computer
+
+git checkout main
+git pull
+
+# Check the history - --graph draws the branch and the merge
+
+git log --oneline --graph
+
+#-----------------------------
+
+# Find the commit where the exon analysis was added:
+# --oneline puts one commit per line starting with the commit id,
+# grep keeps only the line whose message matches,
+# cut -d" " -f1 breaks the line on spaces and takes the first field
+
+git log --oneline | grep "exon count"
+git log --oneline | grep "exon count" | cut -d" " -f1
+
+
+#=============================================================================
+# SUMMARY OF THE ANSWERS
+#=============================================================================
+
+## Q1  2027 genes. 1240 protein_coding (61%), 221 pseudogene, 118 miRNA,
+##     105 snRNA, 99 snoRNA, 89 lincRNA, 73 antisense, and smaller
+##     categories. Nearly 4 in 10 annotated genes are not protein-coding.
+##
+## Q2  The five largest protein-coding genes by genomic span are
+##     Erbb4 1075874, Pard3b 1003461, Thsd7b 945977, Sntg1 938404 and
+##     Nckap5 917180 bases. Erbb4 has 5 transcripts and only 3993 distinct
+##     coding bases - 0.37% of its span. The other 99.6% is intron.
+##
+## Q3  By exon LINES: Dst 511, Cdc42bpa 259, Gigyf2 235, Hmcn1 225,
+##     Prrc2c 207. Dst has 511 exon lines but only 126 distinct exons
+##     across 16 transcripts. Counting each exon once gives Dst 126,
+##     Hmcn1 115, Ush2a 80, Tpr 80, Pkhd1 72 - three of the five genes
+##     change, because the naive count was ranking transcript count.
+##
+## Q4  awk '{print $9}' prints the word gene_id 81226 times, because the
+##     attribute column contains spaces and awk splits on whitespace by
+##     default; use awk -F"\t" or cut -f9. grep -c "gene" gives 81227
+##     instead of 2027, because the word appears in gene_id, gene_name,
+##     gene_source and gene_biotype on every line. Both commands run
+##     cleanly and report a confident wrong number.
+
+#=============================================================================
+#=============================================================================
