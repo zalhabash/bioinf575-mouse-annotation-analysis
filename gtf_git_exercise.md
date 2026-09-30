@@ -26,14 +26,14 @@ single condition, a single substitution or a single sum; the work is done by
 
 **Timing**
 
-| Part | Minutes |
-|---|---|
-| 0. Set up the repository and get the data | 7 |
-| 1. Question 1 — what is annotated here | 7 |
-| 2. Question 2 — the biggest genes, and how little of them codes | 9 |
-| 3. Question 3 — exon counts, and why the obvious answer is wrong | 8 |
-| 4. Question 4 — use AI, then check it | 5 |
-| 5. Pull request and wrap-up | 4 |
+| Part                                                             | Minutes |
+| ---------------------------------------------------------------- | ------- |
+| 0. Set up the repository and get the data                        | 7       |
+| 1. Question 1 — what is annotated here                           | 7       |
+| 2. Question 2 — the biggest genes, and how little of them codes  | 9       |
+| 3. Question 3 — exon counts, and why the obvious answer is wrong | 8       |
+| 4. Question 4 — use AI, then check it                            | 5       |
+| 5. Pull request and wrap-up                                      | 4       |
 
 ---
 
@@ -41,7 +41,7 @@ single condition, a single substitution or a single sum; the work is done by
 
 - a terminal (macOS/Linux Terminal, or Git Bash / WSL on Windows)
 - `git` installed and your GitHub account set up with an SSH key
-- **VS Code** with the *GitHub Copilot* and *GitHub Copilot Chat* extensions,
+- **VS Code** with the _GitHub Copilot_ and _GitHub Copilot Chat_ extensions,
   **or** **UMGPT** at <https://umgpt.umich.edu>
 
 ---
@@ -49,7 +49,7 @@ single condition, a single substitution or a single sum; the work is done by
 ## Part 0 — Set up the repository and get the data (7 min)
 
 **On GitHub**, create a **public** repository called `mouse-annotation-analysis`,
-ticking *Add a README file*.
+ticking _Add a README file_.
 
 **In your terminal** (use your own username):
 
@@ -88,7 +88,7 @@ grep -v "^#" Mus_musculus.GRCm38.75_chr1.gtf | cut -f3 | sort | uniq -c | sort -
 ```
 
 **Do not commit the data file.** It is public and one command re-creates it, so
-what belongs in the repository is the *command*:
+what belongs in the repository is the _command_:
 
 ```bash
 echo "*.gtf" > .gitignore
@@ -191,6 +191,7 @@ sort -nr | head -5
   This matches a tab, then the whole last column, and puts back a tab plus just
   the captured name. After it, the line still has 9 tab-separated fields, and
   field 9 is now the gene name — so `awk` can use it directly.
+
 - Be specific in the `grep`. Searching for `protein_coding` on its own also
   matches other columns; `gene_biotype "protein_coding"` means what you mean.
 - For (b), you need a **sum**. One short `awk` will do it:
@@ -219,14 +220,14 @@ git commit -m "Added the longest gene and coding fraction analysis"
   many **distinct exons** it has (unique start/end pairs), and how many
   **transcripts** it has. Explain the relationship.
 - **c.** Redo the ranking correctly, counting each exon once per gene. Does the
-  top 5 change — and does it change *order*, or does it change *membership*?
+  top 5 change — and does it change _order_, or does it change _membership_?
 
 **Hints**
 
 - For (a): `grep` headers out, `awk` to keep `exon` lines, `sed` to reduce the
   attribute column to the gene name, then `sort | uniq -c | sort -nr | head -5`.
 - For (c) the trick is what you deduplicate on. An exon is identified by its
-  coordinates *and* its gene, so cut out start, end and the gene name, use
+  coordinates _and_ its gene, so cut out start, end and the gene name, use
   `sort -u` to collapse repeats, and only then count per gene.
 - `uniq` only collapses **adjacent** duplicate lines, so `sort` always has to
   come first. This is the single most common cause of wrong counts in a bash
@@ -247,7 +248,7 @@ git push
 ### Set up your tool
 
 **Copilot in VS Code** — Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`) → install
-*GitHub Copilot* and *GitHub Copilot Chat* → sign in. Copilot has a free tier,
+_GitHub Copilot_ and _GitHub Copilot Chat_ → sign in. Copilot has a free tier,
 and students can verify for more at <https://education.github.com> with a
 `@umich.edu` address. Then **File → Open Folder** on your repository folder —
 this matters, because Copilot can only reason about files it can see. Chat opens
